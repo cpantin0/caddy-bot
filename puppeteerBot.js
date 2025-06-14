@@ -4,13 +4,17 @@ const { executablePath } = require("puppeteer");
 
 puppeteer.use(StealthPlugin());
 
+async function wait(ms) {
+  return new Promise(res => setTimeout(res, ms));
+}
+
 async function searchTeeTimes(request) {
   const { location, date, earliestTime, latestTime, walkOrCart } = request;
 
   console.log("🚀 Launching headless browser...");
   const browser = await puppeteer.launch({
     headless: true,
-    executablePath: executablePath(), // ✅ Use Puppeteer-installed Chromium
+    executablePath: executablePath(),
     args: ['--no-sandbox', '--disable-setuid-sandbox'],
   });
 
@@ -27,7 +31,7 @@ async function searchTeeTimes(request) {
       timeout: 30000,
     });
 
-    await page.waitForTimeout(3000);
+    await wait(3000); // instead of page.waitForTimeout
 
     // Accept cookies (optional)
     try {
@@ -35,7 +39,7 @@ async function searchTeeTimes(request) {
       if (acceptBtn) {
         console.log("🍪 Clicking cookie button...");
         await acceptBtn.click();
-        await page.waitForTimeout(1000);
+        await wait(1000);
       } else {
         console.log("⚠️ No cookie banner found or skipped.");
       }
@@ -63,7 +67,7 @@ async function searchTeeTimes(request) {
     console.log(`📍 Typing location: ${location}`);
     await searchInput.type(location);
     await page.keyboard.press("Enter");
-    await page.waitForTimeout(8000);
+    await wait(8000); // instead of page.waitForTimeout
 
     console.log("📄 Waiting for tee time cards...");
     await page.waitForSelector(".teetime-card", { timeout: 15000 });
