@@ -8,33 +8,34 @@ const { sendTelegramMessage } = require("./telegramBot");
 const app = express();
 app.use(bodyParser.json());
 
+// 🏠 Health check
 app.get("/", (req, res) => {
   res.send("🏌️‍♂️ Your Caddy Bot is live!");
 });
 
+// 🎯 Main booking trigger
 app.post("/trigger", async (req, res) => {
-  try {
-    console.log("✅ Trigger hit!");
-    console.log(req.body);
+  console.log("✅ /trigger endpoint hit.");
+  console.log("📦 Incoming request body:", JSON.stringify(req.body, null, 2));
 
+  try {
     const results = await searchTeeTimes(req.body);
 
-    const message = `🟢 Tee Times Found:\n` + results
-      .map((r, i) => `${i + 1}. ${r.time} at ${r.course} – ${r.price}`)
-      .join("\n") + `\n\nReply with a number to approve.`;
+    if (!results || results.length === 0) {
+      console.warn("⚠️ No tee times found.");
+      await sendTelegramMessage("⚠️ No tee times found for your search.");
+      return res.status(200).send({ success: true, message: "No tee times found." });
+    }
 
+    const message =
+      `🟢 Tee Times Found:\n\n` +
+      results.map((r, i) => `${i + 1}. ${r.time} at ${r.course} – ${r.price}`).join("\n") +
+      `\n\nReply with a number to approve.`;
+
+    console.log("📨 Sending Telegram message:\n", message);
     await sendTelegramMessage(message);
 
-    res.send({ success: true });
+    res.send({ success: true, results });
   } catch (error) {
-    console.error("❌ Error in /trigger:", error);
-    res.status(500).send("Error processing tee time search");
-  }
-});
-
-const PORT = process.env.PORT || 8080;
-app.listen(PORT, () => {
-  console.log(`🚀 Bot is live on port ${PORT}`);
-});
-
-
+    console.error("❌ Error during /trigger execution:", error);
+    res.statu

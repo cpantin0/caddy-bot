@@ -7,35 +7,42 @@ async function searchTeeTimes(request) {
     budget,
     walkOrCart,
     earliestTime,
-    latestTime
+    latestTime,
+    location = "Los Angeles, CA" // default fallback
   } = request;
 
-  // 🛠 FIX: Add args to run in Railway safely
   const browser = await puppeteer.launch({
     headless: true,
-    args: ['--no-sandbox', '--disable-setuid-sandbox']
+    args: [
+      "--no-sandbox",
+      "--disable-setuid-sandbox",
+      "--disable-dev-shm-usage",
+      "--disable-gpu"
+    ]
   });
 
   const page = await browser.newPage();
 
   try {
-    // Example: GolfNow guest search
-    await page.goto("https://www.golfnow.com/");
-    await page.waitForSelector("input[placeholder='City, Course, or Zip']");
+    // Load GolfNow
+    await page.goto("https://www.golfnow.com/", { waitUntil: "networkidle2" });
 
-    // Fill search field (for now default to "Los Angeles, CA")
-    await page.type("input[placeholder='City, Course, or Zip']", "Los Angeles, CA");
+    // Wait for the search input
+    await page.waitForSelector("input[placeholder='City, Course, or Zip']", { timeout: 60000 });
+
+    // Fill in search field
+    await page.type("input[placeholder='City, Course, or Zip']", location);
     await page.keyboard.press("Enter");
 
-    // Wait for tee times to load
-    await page.waitForTimeout(5000); // may need tweaking
+    // Give results time to load
+    await page.waitForTimeout(7000);
 
-    // Extract tee times (simplified for now)
+    // Scrape results
     const teeTimes = await page.evaluate(() => {
       const cards = document.querySelectorAll(".teetime-card");
-      let results = [];
+      const results = [];
 
-      cards.forEach(card => {
+      cards.forEach((card) => {
         const course = card.querySelector(".course-name")?.textContent?.trim();
         const time = card.querySelector(".time")?.textContent?.trim();
         const price = card.querySelector(".price")?.textContent?.trim();
@@ -45,7 +52,7 @@ async function searchTeeTimes(request) {
         }
       });
 
-      return results.slice(0, 5); // return top 5 results for now
+      return results.slice(0, 5);
     });
 
     return teeTimes;
