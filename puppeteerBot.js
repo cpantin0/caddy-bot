@@ -33,7 +33,7 @@ async function searchTeeTimes(request) {
     await page.keyboard.press("Enter");
 
     console.log("⏳ Waiting for tee times to load...");
-    await page.waitForTimeout(8000); // Adjust if needed
+    await page.waitForSelector('.teetime-card', { timeout: 10000 }); // Adjust if needed
 
     console.log("📋 Extracting tee times...");
     const teeTimes = await page.evaluate(() => {
