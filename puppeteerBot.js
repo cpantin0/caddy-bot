@@ -10,7 +10,12 @@ async function searchTeeTimes(request) {
     latestTime
   } = request;
 
-  const browser = await puppeteer.launch({ headless: true });
+  // 🛠 FIX: Add args to run in Railway safely
+  const browser = await puppeteer.launch({
+    headless: true,
+    args: ['--no-sandbox', '--disable-setuid-sandbox']
+  });
+
   const page = await browser.newPage();
 
   try {
