@@ -1,6 +1,5 @@
 const puppeteer = require("puppeteer-extra");
 const StealthPlugin = require("puppeteer-extra-plugin-stealth");
-const fs = require("fs");
 const { executablePath } = require("puppeteer");
 
 puppeteer.use(StealthPlugin());
@@ -16,58 +15,68 @@ async function searchTeeTimes(request) {
   const browser = await puppeteer.launch({
     headless: true,
     executablePath: executablePath(),
-    args: ["--no-sandbox", "--disable-setuid-sandbox"],
+    args: ["--no-sandbox", "--disable-setuid-sandbox"]
   });
 
   const page = await browser.newPage();
 
+  // Patch headless fingerprinting
+  await page.evaluateOnNewDocument(() => {
+    Object.defineProperty(navigator, 'webdriver', {
+      get: () => false,
+    });
+  });
+
   await page.setUserAgent(
-    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/113.0.0.0 Safari/537.36"
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/113.0.0.0 Safari/537.36"
   );
 
   try {
-    console.log("🌐 Navigating to GolfNow...");
-    await page.goto("https://www.golfnow.com/", {
-      waitUntil: "domcontentloaded",
+    console.log("🌐 Navigating to GolfNow search page...");
+    await page.goto("https://www.golfnow.com/tee-times/search", {
+      waitUntil: "networkidle2",
       timeout: 30000,
     });
 
-    await wait(3000);
+    await wait(4000);
 
+    // Accept cookies
     try {
       const acceptBtn = await page.$("button[aria-label*='Accept'], button:has-text('Accept')");
       if (acceptBtn) {
-        console.log("🍪 Clicking cookie button...");
+        console.log("🍪 Accepting cookies...");
         await acceptBtn.click();
         await wait(1000);
-      } else {
-        console.log("⚠️ No cookie banner found or skipped.");
       }
     } catch {
-      console.log("⚠️ Cookie acceptance failed gracefully.");
+      console.log("⚠️ Cookie acceptance skipped or failed gracefully.");
     }
 
-    console.log("🔍 Waiting for search input...");
-    const input = await page.waitForSelector("input[placeholder='City, Course, or Zip']", {
-      timeout: 10000,
-    });
+    // Force reload to beat hydration fallback
+    await page.reload({ waitUntil: "domcontentloaded" });
+    await wait(4000);
+
+    // Retry with alternative selector
+    const inputSelector = "input[type='search'], input[placeholder*='City'], input[aria-label*='search']";
+
+    console.log("🔍 Waiting for location input...");
+    const input = await page.waitForSelector(inputSelector, { timeout: 15000 });
 
     console.log(`📍 Typing location: ${location}`);
     await input.type(location);
     await page.keyboard.press("Enter");
 
-    console.log("⏳ Waiting for results to load...");
-    await wait(8000); // buffer for dynamic load
-
-    console.log("📄 Searching for tee time cards...");
+    console.log("⏳ Waiting for search results...");
+    await wait(8000);
 
     const teeTimeSelector = ".teetime-card";
     const teeTimesExist = await page.$(teeTimeSelector);
 
     if (!teeTimesExist) {
       console.warn("⚠️ Tee time cards not found, capturing screenshot...");
-      await page.screenshot({ path: "no_teetimes.png", fullPage: true });
-      throw new Error("Tee time cards did not load.");
+      const buffer = await page.screenshot({ fullPage: true });
+      console.log("🖼️ Screenshot (base64):", buffer.toString("base64"));
+      throw new Error("Tee time cards not found on search results page.");
     }
 
     await page.waitForSelector(teeTimeSelector, { timeout: 10000 });
@@ -87,17 +96,8 @@ async function searchTeeTimes(request) {
     return teeTimes;
   } catch (err) {
     console.error("❌ Scraping error:", err);
-
     const html = await page.content();
     console.log("🕵️ Page HTML snapshot:\n", html.slice(0, 1000));
-
-    try {
-      await page.screenshot({ path: "error_state.png", fullPage: true });
-      console.log("📸 Screenshot saved to error_state.png");
-    } catch (screenshotErr) {
-      console.error("❌ Screenshot failed:", screenshotErr);
-    }
-
     return [];
   } finally {
     console.log("🛑 Browser closed");
