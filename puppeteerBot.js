@@ -1,5 +1,5 @@
 const puppeteer = require("puppeteer");
-const { executablePath } = require("puppeteer"); // ✅ use Puppeteer's bundled Chromium
+const { executablePath } = require("puppeteer");
 
 async function searchTeeTimes(request) {
   const {
@@ -14,15 +14,35 @@ async function searchTeeTimes(request) {
 
   const browser = await puppeteer.launch({
     headless: true,
-    executablePath: executablePath(), // ✅ dynamically resolves correct Chromium path
+    executablePath: executablePath(),
     args: ['--no-sandbox', '--disable-setuid-sandbox']
   });
 
   const page = await browser.newPage();
 
+  // 🧠 Set desktop user-agent
+  await page.setUserAgent(
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/113.0.0.0 Safari/537.36"
+  );
+
   try {
     console.log("🌐 Navigating to GolfNow...");
-    await page.goto("https://www.golfnow.com/", { waitUntil: 'networkidle2' });
+    await page.goto("https://www.golfnow.com/", { waitUntil: 'domcontentloaded', timeout: 30000 });
+
+    // ⏳ Extra wait for JS-heavy site to fully hydrate
+    await page.waitForTimeout(4000);
+
+    // ✅ Optional: Accept cookies if visible
+    try {
+      const acceptBtn = await page.$("button[aria-label*='Accept']") || await page.$("button:has-text('Accept')");
+      if (acceptBtn) {
+        console.log("🍪 Accepting cookies...");
+        await acceptBtn.click();
+        await page.waitForTimeout(2000);
+      }
+    } catch (cookieErr) {
+      console.log("⚠️ No cookie button found or failed gracefully.");
+    }
 
     console.log("🔍 Waiting for search input field...");
     await page.waitForSelector("input[placeholder='City, Course, or Zip']", { timeout: 15000 });
@@ -57,10 +77,8 @@ async function searchTeeTimes(request) {
     return teeTimes;
   } catch (err) {
     console.error("❌ Scraping error:", err);
-
     const html = await page.content();
     console.log("🕵️ Page HTML snapshot:\n", html.slice(0, 1000));
-
     return [];
   } finally {
     console.log("🛑 Browser closed");
