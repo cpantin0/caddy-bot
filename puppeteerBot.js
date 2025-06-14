@@ -1,3 +1,5 @@
+// puppeteerBot.js
+
 const puppeteer = require("puppeteer-extra");
 const StealthPlugin = require("puppeteer-extra-plugin-stealth");
 const { executablePath } = require("puppeteer");
@@ -5,103 +7,119 @@ const { executablePath } = require("puppeteer");
 puppeteer.use(StealthPlugin());
 
 async function wait(ms) {
-  return new Promise((res) => setTimeout(res, ms));
+  return new Promise(res => setTimeout(res, ms));
 }
 
-async function searchTeeTimes(request) {
-  const { location, date, earliestTime, latestTime, walkOrCart } = request;
-
+async function searchTeeTimes({ location, date, earliestTime, latestTime, walkOrCart }) {
   console.log("🚀 Launching headless browser...");
   const browser = await puppeteer.launch({
     headless: true,
     executablePath: executablePath(),
     args: ["--no-sandbox", "--disable-setuid-sandbox"]
   });
-
   const page = await browser.newPage();
 
   // Patch headless fingerprinting
   await page.evaluateOnNewDocument(() => {
-    Object.defineProperty(navigator, 'webdriver', {
-      get: () => false,
-    });
+    Object.defineProperty(navigator, "webdriver", { get: () => false });
   });
 
+  // Desktop viewport + UA
+  await page.setViewport({ width: 1280, height: 800 });
   await page.setUserAgent(
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/113.0.0.0 Safari/537.36"
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) " +
+    "AppleWebKit/537.36 (KHTML, like Gecko) " +
+    "Chrome/113.0.0.0 Safari/537.36"
   );
 
   try {
     console.log("🌐 Navigating to GolfNow search page...");
     await page.goto("https://www.golfnow.com/tee-times/search", {
       waitUntil: "networkidle2",
-      timeout: 30000,
+      timeout: 30000
     });
+    await wait(3000);
 
-    await wait(4000);
-
-    // Accept cookies
+    // Accept cookies if present
     try {
-      const acceptBtn = await page.$("button[aria-label*='Accept'], button:has-text('Accept')");
-      if (acceptBtn) {
-        console.log("🍪 Accepting cookies...");
-        await acceptBtn.click();
+      const btn = await page.$("button#onetrust-accept-btn-handler");
+      if (btn) {
+        console.log("🍪 Accepting cookies…");
+        await btn.click();
         await wait(1000);
       }
-    } catch {
-      console.log("⚠️ Cookie acceptance skipped or failed gracefully.");
-    }
+    } catch {}
 
-    // Force reload to beat hydration fallback
+    // Reload to ensure hydration
     await page.reload({ waitUntil: "domcontentloaded" });
-    await wait(4000);
+    await wait(2000);
 
-    // Retry with alternative selector
-    const inputSelector = "input[type='search'], input[placeholder*='City'], input[aria-label*='search']";
-
-    console.log("🔍 Waiting for location input...");
-    const input = await page.waitForSelector(inputSelector, { timeout: 15000 });
+    // Find & fill location input with fallbacks
+    console.log("🔍 Locating search input…");
+    const inputSelectors = [
+      "input[placeholder*='City']",
+      "input[type='search']",
+      "input[aria-label*='search']"
+    ];
+    let inputHandle = null;
+    for (let sel of inputSelectors) {
+      try {
+        inputHandle = await page.waitForSelector(sel, { timeout: 5000 });
+        if (inputHandle) break;
+      } catch {}
+    }
+    if (!inputHandle) throw new Error("Search input not found");
 
     console.log(`📍 Typing location: ${location}`);
-    await input.type(location);
+    await inputHandle.click({ clickCount: 3 });
+    await inputHandle.type(location, { delay: 100 });
     await page.keyboard.press("Enter");
 
-    console.log("⏳ Waiting for search results...");
+    console.log("⏳ Waiting for search results…");
     await wait(8000);
 
-    const teeTimeSelector = ".teetime-card";
-    const teeTimesExist = await page.$(teeTimeSelector);
-
-    if (!teeTimesExist) {
-      console.warn("⚠️ Tee time cards not found, capturing screenshot...");
-      const buffer = await page.screenshot({ fullPage: true });
-      console.log("🖼️ Screenshot (base64):", buffer.toString("base64"));
-      throw new Error("Tee time cards not found on search results page.");
+    // Look for tee-time cards with multiple selectors
+    const cardSelectors = [
+      "[data-testid='teetime-card']",
+      ".teetime-card",
+      "[class*='tee-time-card']"
+    ];
+    let cards = [];
+    for (let sel of cardSelectors) {
+      cards = await page.$$(sel);
+      if (cards.length) {
+        console.log(`✅ Found cards with selector: ${sel}`);
+        break;
+      }
+    }
+    if (!cards.length) {
+      console.warn("⚠️ No tee-time cards found — capturing screenshot & HTML snippet");
+      const shot = await page.screenshot({ encoding: "base64", fullPage: true });
+      console.log("📸 Screenshot (base64):", shot);
+      console.log("📰 HTML snippet:", (await page.content()).slice(0, 1000));
+      throw new Error("Tee-time cards did not load");
     }
 
-    await page.waitForSelector(teeTimeSelector, { timeout: 10000 });
-
-    const teeTimes = await page.evaluate(() => {
-      return Array.from(document.querySelectorAll(".teetime-card"))
+    // Extract up to 5
+    const teeTimes = await page.evaluate((sel) => {
+      return Array.from(document.querySelectorAll(sel))
         .slice(0, 5)
-        .map((card) => ({
-          course: card.querySelector(".course-name")?.textContent?.trim(),
-          time: card.querySelector(".time")?.textContent?.trim(),
-          price: card.querySelector(".price")?.textContent?.trim(),
+        .map(card => ({
+          course: card.querySelector(".course-name")?.innerText.trim() || null,
+          time:   card.querySelector(".time")?.innerText.trim()       || null,
+          price:  card.querySelector(".price")?.innerText.trim()      || null
         }))
-        .filter((t) => t.course && t.time && t.price);
-    });
+        .filter(t => t.course && t.time && t.price);
+    }, cardSelectors.find(sel => cards.length));
 
     console.log("🏌️ Tee times scraped:", teeTimes);
     return teeTimes;
   } catch (err) {
     console.error("❌ Scraping error:", err);
-    const html = await page.content();
-    console.log("🕵️ Page HTML snapshot:\n", html.slice(0, 1000));
     return [];
   } finally {
-    console.log("🛑 Browser closed");
     await browser.close();
+    console.log("🛑 Browser closed");
   }
 }
 
