@@ -1,7 +1,10 @@
-const puppeteer = require("puppeteer");
+const puppeteer = require("puppeteer-extra");
+const StealthPlugin = require("puppeteer-extra-plugin-stealth");
 const { executablePath } = require("puppeteer");
 
-// ✅ Helper to replace page.waitForTimeout (compatible with all versions)
+puppeteer.use(StealthPlugin());
+
+// ✅ Helper to simulate a wait
 const wait = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
 async function searchTeeTimes(request) {
@@ -17,66 +20,61 @@ async function searchTeeTimes(request) {
 
   const browser = await puppeteer.launch({
     headless: true,
-    executablePath: executablePath(), // ✅ Auto-resolves path to Chromium
+    executablePath: executablePath(),
     args: ['--no-sandbox', '--disable-setuid-sandbox']
   });
 
   const page = await browser.newPage();
 
-  // 🧠 Set desktop user-agent
-  await page.setUserAgent(
-    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/113.0.0.0 Safari/537.36"
-  );
+  // 🧠 Use common browser headers
+  await page.setUserAgent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36");
+  await page.setExtraHTTPHeaders({ "Accept-Language": "en-US,en;q=0.9" });
+  await page.setViewport({ width: 1280, height: 800 });
 
   try {
     console.log("🌐 Navigating to GolfNow...");
-    await page.goto("https://www.golfnow.com/", { waitUntil: 'domcontentloaded', timeout: 30000 });
+    await page.goto("https://www.golfnow.com/", { waitUntil: "networkidle2", timeout: 30000 });
 
-    // ⏳ Extra wait for JS-heavy site to fully hydrate
-    await wait(4000);
+    // ⏳ Wait for hydration
+    await wait(5000);
 
-    // ✅ Accept cookies if present
+    // 🍪 Accept cookies if needed
     try {
-      const acceptBtn = await page.$("button[aria-label*='Accept']") || await page.$("button:has-text('Accept')");
-      if (acceptBtn) {
+      const cookieBtn = await page.$("button[aria-label*='Accept'], button:text('Accept')");
+      if (cookieBtn) {
         console.log("🍪 Accepting cookies...");
-        await acceptBtn.click();
+        await cookieBtn.click();
         await wait(2000);
       }
-    } catch (cookieErr) {
-      console.log("⚠️ No cookie button found or skipped.");
+    } catch (err) {
+      console.log("⚠️ No cookie banner found or skipped.");
     }
 
-    console.log("🔍 Waiting for search input field...");
+    console.log("🔍 Waiting for search input...");
     await page.waitForSelector("input[placeholder='City, Course, or Zip']", { timeout: 15000 });
 
     console.log(`📍 Typing location: ${location}`);
-    await page.type("input[placeholder='City, Course, or Zip']", location);
+    await page.type("input[placeholder='City, Course, or Zip']", location, { delay: 100 });
     await page.keyboard.press("Enter");
 
-    console.log("⏳ Waiting for tee times to load...");
-    await wait(8000);
+    console.log("⏳ Waiting for results...");
+    await wait(10000);
 
-    console.log("📄 Waiting for tee time cards...");
+    console.log("📄 Looking for tee time cards...");
     await page.waitForSelector(".teetime-card", { timeout: 15000 });
 
     const teeTimes = await page.evaluate(() => {
-      const cards = document.querySelectorAll(".teetime-card");
       const results = [];
-
-      cards.forEach(card => {
+      document.querySelectorAll(".teetime-card").forEach(card => {
         const course = card.querySelector(".course-name")?.textContent?.trim();
         const time = card.querySelector(".time")?.textContent?.trim();
         const price = card.querySelector(".price")?.textContent?.trim();
-        if (course && time && price) {
-          results.push({ course, time, price });
-        }
+        if (course && time && price) results.push({ course, time, price });
       });
-
       return results.slice(0, 5);
     });
 
-    console.log("🏌️ Tee times scraped: ", teeTimes);
+    console.log("🏌️ Tee times scraped:", teeTimes);
     return teeTimes;
   } catch (err) {
     console.error("❌ Scraping error:", err);
