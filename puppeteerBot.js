@@ -13,6 +13,7 @@ async function searchTeeTimes(request) {
 
   const browser = await puppeteer.launch({
     headless: true,
+    executablePath: '/usr/bin/chromium-browser', // ✅ REQUIRED on Railway
     args: ['--no-sandbox', '--disable-setuid-sandbox']
   });
 
@@ -30,7 +31,7 @@ async function searchTeeTimes(request) {
     await page.keyboard.press("Enter");
 
     console.log("⏳ Waiting for tee times to load...");
-    await page.waitForTimeout(8000); // give time for UI to render results
+    await page.waitForTimeout(8000); // allow UI to render
 
     console.log("📄 Waiting for tee time cards...");
     await page.waitForSelector(".teetime-card", { timeout: 15000 });
@@ -58,7 +59,7 @@ async function searchTeeTimes(request) {
 
     // DEBUG: output HTML snapshot to help identify issue
     const html = await page.content();
-    console.log("🕵️ Page HTML snapshot:\n", html.slice(0, 1000)); // limit to first 1000 chars
+    console.log("🕵️ Page HTML snapshot:\n", html.slice(0, 1000)); // first 1000 chars
 
     return [];
   } finally {
