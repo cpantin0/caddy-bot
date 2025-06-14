@@ -1,6 +1,9 @@
 const puppeteer = require("puppeteer");
 const { executablePath } = require("puppeteer");
 
+// ✅ Helper to replace page.waitForTimeout (compatible with all versions)
+const wait = (ms) => new Promise(resolve => setTimeout(resolve, ms));
+
 async function searchTeeTimes(request) {
   const {
     location,
@@ -14,7 +17,7 @@ async function searchTeeTimes(request) {
 
   const browser = await puppeteer.launch({
     headless: true,
-    executablePath: executablePath(),
+    executablePath: executablePath(), // ✅ Auto-resolves path to Chromium
     args: ['--no-sandbox', '--disable-setuid-sandbox']
   });
 
@@ -30,18 +33,18 @@ async function searchTeeTimes(request) {
     await page.goto("https://www.golfnow.com/", { waitUntil: 'domcontentloaded', timeout: 30000 });
 
     // ⏳ Extra wait for JS-heavy site to fully hydrate
-    await page.waitForTimeout(4000);
+    await wait(4000);
 
-    // ✅ Optional: Accept cookies if visible
+    // ✅ Accept cookies if present
     try {
       const acceptBtn = await page.$("button[aria-label*='Accept']") || await page.$("button:has-text('Accept')");
       if (acceptBtn) {
         console.log("🍪 Accepting cookies...");
         await acceptBtn.click();
-        await page.waitForTimeout(2000);
+        await wait(2000);
       }
     } catch (cookieErr) {
-      console.log("⚠️ No cookie button found or failed gracefully.");
+      console.log("⚠️ No cookie button found or skipped.");
     }
 
     console.log("🔍 Waiting for search input field...");
@@ -52,7 +55,7 @@ async function searchTeeTimes(request) {
     await page.keyboard.press("Enter");
 
     console.log("⏳ Waiting for tee times to load...");
-    await page.waitForTimeout(8000);
+    await wait(8000);
 
     console.log("📄 Waiting for tee time cards...");
     await page.waitForSelector(".teetime-card", { timeout: 15000 });
