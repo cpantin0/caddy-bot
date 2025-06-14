@@ -1,5 +1,6 @@
 const puppeteer = require("puppeteer-extra");
 const StealthPlugin = require("puppeteer-extra-plugin-stealth");
+const { executablePath } = require("puppeteer");
 
 puppeteer.use(StealthPlugin());
 
@@ -9,13 +10,12 @@ async function searchTeeTimes(request) {
   console.log("🚀 Launching headless browser...");
   const browser = await puppeteer.launch({
     headless: true,
-    executablePath: '/usr/bin/chromium-browser',
+    executablePath: executablePath(), // ✅ Use Puppeteer-installed Chromium
     args: ['--no-sandbox', '--disable-setuid-sandbox'],
   });
 
   const page = await browser.newPage();
 
-  // 🧠 Use desktop-like headers
   await page.setUserAgent(
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/113.0.0.0 Safari/537.36"
   );
@@ -27,9 +27,9 @@ async function searchTeeTimes(request) {
       timeout: 30000,
     });
 
-    await page.waitForTimeout(3000); // let JS load
+    await page.waitForTimeout(3000);
 
-    // 🍪 Try to click accept cookie button
+    // Accept cookies (optional)
     try {
       const acceptBtn = await page.$("button[aria-label*='Accept'], button:has-text('Accept')");
       if (acceptBtn) {
@@ -39,7 +39,7 @@ async function searchTeeTimes(request) {
       } else {
         console.log("⚠️ No cookie banner found or skipped.");
       }
-    } catch (e) {
+    } catch {
       console.log("⚠️ Cookie acceptance failed gracefully.");
     }
 
@@ -55,12 +55,10 @@ async function searchTeeTimes(request) {
       try {
         searchInput = await page.waitForSelector(selector, { timeout: 5000 });
         if (searchInput) break;
-      } catch (e) {}
+      } catch {}
     }
 
-    if (!searchInput) {
-      throw new Error("🔎 Search input not found — page layout might have changed.");
-    }
+    if (!searchInput) throw new Error("🔎 Search input not found.");
 
     console.log(`📍 Typing location: ${location}`);
     await searchInput.type(location);
@@ -71,12 +69,14 @@ async function searchTeeTimes(request) {
     await page.waitForSelector(".teetime-card", { timeout: 15000 });
 
     const teeTimes = await page.evaluate(() => {
-      const cards = document.querySelectorAll(".teetime-card");
-      return Array.from(cards).slice(0, 5).map(card => ({
-        course: card.querySelector(".course-name")?.textContent?.trim(),
-        time: card.querySelector(".time")?.textContent?.trim(),
-        price: card.querySelector(".price")?.textContent?.trim(),
-      })).filter(e => e.course && e.time && e.price);
+      return Array.from(document.querySelectorAll(".teetime-card"))
+        .slice(0, 5)
+        .map(card => ({
+          course: card.querySelector(".course-name")?.textContent?.trim(),
+          time: card.querySelector(".time")?.textContent?.trim(),
+          price: card.querySelector(".price")?.textContent?.trim()
+        }))
+        .filter(t => t.course && t.time && t.price);
     });
 
     console.log("🏌️ Tee times scraped:", teeTimes);
