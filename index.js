@@ -38,4 +38,12 @@ app.post("/trigger", async (req, res) => {
     res.send({ success: true, results });
   } catch (error) {
     console.error("❌ Error during /trigger execution:", error);
-    res.statu
+    res.status(500).send({ success: false, error: "Internal server error" });
+  }
+});
+
+// ✅ Dynamic port assignment (for Railway, Replit, etc.)
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => {
+  console.log(`🚀 Caddy Bot server running on port ${PORT}`);
+});
