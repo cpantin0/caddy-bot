@@ -1,77 +1,82 @@
 const puppeteer = require("puppeteer-extra");
 const StealthPlugin = require("puppeteer-extra-plugin-stealth");
-const { executablePath } = require("puppeteer");
 
 puppeteer.use(StealthPlugin());
 
-// ✅ Helper to simulate a wait
-const wait = (ms) => new Promise(resolve => setTimeout(resolve, ms));
-
 async function searchTeeTimes(request) {
-  const {
-    location,
-    date,
-    earliestTime,
-    latestTime,
-    walkOrCart
-  } = request;
+  const { location, date, earliestTime, latestTime, walkOrCart } = request;
 
   console.log("🚀 Launching headless browser...");
-
   const browser = await puppeteer.launch({
     headless: true,
-    executablePath: executablePath(),
-    args: ['--no-sandbox', '--disable-setuid-sandbox']
+    executablePath: '/usr/bin/chromium-browser',
+    args: ['--no-sandbox', '--disable-setuid-sandbox'],
   });
 
   const page = await browser.newPage();
 
-  // 🧠 Use common browser headers
-  await page.setUserAgent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36");
-  await page.setExtraHTTPHeaders({ "Accept-Language": "en-US,en;q=0.9" });
-  await page.setViewport({ width: 1280, height: 800 });
+  // 🧠 Use desktop-like headers
+  await page.setUserAgent(
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/113.0.0.0 Safari/537.36"
+  );
 
   try {
     console.log("🌐 Navigating to GolfNow...");
-    await page.goto("https://www.golfnow.com/", { waitUntil: "networkidle2", timeout: 30000 });
+    await page.goto("https://www.golfnow.com/", {
+      waitUntil: "domcontentloaded",
+      timeout: 30000,
+    });
 
-    // ⏳ Wait for hydration
-    await wait(5000);
+    await page.waitForTimeout(3000); // let JS load
 
-    // 🍪 Accept cookies if needed
+    // 🍪 Try to click accept cookie button
     try {
-      const cookieBtn = await page.$("button[aria-label*='Accept'], button:text('Accept')");
-      if (cookieBtn) {
-        console.log("🍪 Accepting cookies...");
-        await cookieBtn.click();
-        await wait(2000);
+      const acceptBtn = await page.$("button[aria-label*='Accept'], button:has-text('Accept')");
+      if (acceptBtn) {
+        console.log("🍪 Clicking cookie button...");
+        await acceptBtn.click();
+        await page.waitForTimeout(1000);
+      } else {
+        console.log("⚠️ No cookie banner found or skipped.");
       }
-    } catch (err) {
-      console.log("⚠️ No cookie banner found or skipped.");
+    } catch (e) {
+      console.log("⚠️ Cookie acceptance failed gracefully.");
     }
 
     console.log("🔍 Waiting for search input...");
-    await page.waitForSelector("input[placeholder='City, Course, or Zip']", { timeout: 15000 });
+    const inputSelectors = [
+      "input[placeholder='City, Course, or Zip']",
+      "input[type='search']",
+      "input[name*='search']"
+    ];
+
+    let searchInput;
+    for (const selector of inputSelectors) {
+      try {
+        searchInput = await page.waitForSelector(selector, { timeout: 5000 });
+        if (searchInput) break;
+      } catch (e) {}
+    }
+
+    if (!searchInput) {
+      throw new Error("🔎 Search input not found — page layout might have changed.");
+    }
 
     console.log(`📍 Typing location: ${location}`);
-    await page.type("input[placeholder='City, Course, or Zip']", location, { delay: 100 });
+    await searchInput.type(location);
     await page.keyboard.press("Enter");
+    await page.waitForTimeout(8000);
 
-    console.log("⏳ Waiting for results...");
-    await wait(10000);
-
-    console.log("📄 Looking for tee time cards...");
+    console.log("📄 Waiting for tee time cards...");
     await page.waitForSelector(".teetime-card", { timeout: 15000 });
 
     const teeTimes = await page.evaluate(() => {
-      const results = [];
-      document.querySelectorAll(".teetime-card").forEach(card => {
-        const course = card.querySelector(".course-name")?.textContent?.trim();
-        const time = card.querySelector(".time")?.textContent?.trim();
-        const price = card.querySelector(".price")?.textContent?.trim();
-        if (course && time && price) results.push({ course, time, price });
-      });
-      return results.slice(0, 5);
+      const cards = document.querySelectorAll(".teetime-card");
+      return Array.from(cards).slice(0, 5).map(card => ({
+        course: card.querySelector(".course-name")?.textContent?.trim(),
+        time: card.querySelector(".time")?.textContent?.trim(),
+        price: card.querySelector(".price")?.textContent?.trim(),
+      })).filter(e => e.course && e.time && e.price);
     });
 
     console.log("🏌️ Tee times scraped:", teeTimes);
